@@ -290,19 +290,49 @@ class HotpotQADataLoader:
             key = (para.title, para.sentence_id)
             title_sent_to_para[key] = para.para_id
 
+        # Debug: Check mapping
+        print(f"Total paragraphs in corpus: {len(paragraphs)}")
+        print(f"Unique (title, sent_id) keys: {len(title_sent_to_para)}")
+
         ground_truth = {}
+        total_supporting_facts = 0
+        found_supporting_facts = 0
 
         for example in tqdm(examples, desc="Building ground truth"):
             labels = {}
 
             # Mark supporting facts as relevant (label=1)
             for title, sent_id in example.supporting_facts:
+                total_supporting_facts += 1
                 key = (title, sent_id)
                 if key in title_sent_to_para:
                     para_id = title_sent_to_para[key]
                     labels[para_id] = 1
+                    found_supporting_facts += 1
 
             ground_truth[example.question_id] = labels
 
         print(f"Created ground truth for {len(ground_truth)} questions")
+        print(f"Total supporting facts: {total_supporting_facts}")
+        print(f"Found in corpus: {found_supporting_facts} ({found_supporting_facts/total_supporting_facts*100:.1f}%)")
+
+        # Debug: Show sample mismatches
+        if found_supporting_facts < total_supporting_facts:
+            print("\nDEBUG: Sample supporting facts NOT found:")
+            count = 0
+            for example in examples[:5]:
+                for title, sent_id in example.supporting_facts:
+                    key = (title, sent_id)
+                    if key not in title_sent_to_para:
+                        print(f"  Missing: title='{title}', sent_id={sent_id}")
+                        count += 1
+                        if count >= 5:
+                            break
+                if count >= 5:
+                    break
+
+            print("\nDEBUG: Sample paragraphs in corpus:")
+            for i, para in enumerate(paragraphs[:5]):
+                print(f"  Para {i}: title='{para.title}', sent_id={para.sentence_id}, id={para.para_id}")
+
         return ground_truth
