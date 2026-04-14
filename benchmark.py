@@ -207,9 +207,24 @@ class RetrievalBenchmark:
         print("=" * 60)
 
         # Build ground truth
+        print("Building ground truth labels...")
         ground_truth = self.data_loader.get_ground_truth_labels(examples, paragraphs)
 
+        # Debug info
+        print(f"Number of questions: {len(retrieval_results)}")
+        print(f"Number of ground truth entries: {len(ground_truth)}")
+
+        # Sample check
+        if ground_truth:
+            sample_qid = list(ground_truth.keys())[0]
+            print(f"Sample ground truth for question {sample_qid}:")
+            print(f"  Relevant docs: {len(ground_truth[sample_qid])}")
+            if sample_qid in retrieval_results:
+                print(f"  Retrieved docs: {len(retrieval_results[sample_qid])}")
+                print(f"  First 5 retrieved: {retrieval_results[sample_qid][:5]}")
+
         # Evaluate
+        print("\nCalculating metrics...")
         metrics = self.evaluator.evaluate(retrieval_results, ground_truth)
 
         return metrics

@@ -167,14 +167,21 @@ class BenchmarkEvaluator:
             Dict of metric_name -> score
         """
         if not retrieval_results:
+            print("WARNING: No retrieval results to evaluate")
             return {}
 
         # Initialize metric storage
         metrics = defaultdict(list)
 
+        # Track statistics
+        num_evaluated = 0
+        num_skipped_no_ground_truth = 0
+        num_skipped_no_relevant = 0
+
         # Evaluate each query
         for question_id, retrieved_docs in retrieval_results.items():
             if question_id not in ground_truth:
+                num_skipped_no_ground_truth += 1
                 continue
 
             relevance_labels = ground_truth[question_id]
@@ -182,7 +189,10 @@ class BenchmarkEvaluator:
 
             # Skip if no relevant docs
             if not relevant_docs:
+                num_skipped_no_relevant += 1
                 continue
+
+            num_evaluated += 1
 
             # Calculate metrics at different k values
             for k in self.k_values:
@@ -205,6 +215,20 @@ class BenchmarkEvaluator:
             # MRR (no k cutoff)
             mrr = self.metrics_calculator.mean_reciprocal_rank(retrieved_docs, relevant_docs)
             metrics["mrr"].append(mrr)
+
+        # Print statistics
+        print(f"\nEvaluation Statistics:")
+        print(f"  Total questions: {len(retrieval_results)}")
+        print(f"  Evaluated: {num_evaluated}")
+        print(f"  Skipped (no ground truth): {num_skipped_no_ground_truth}")
+        print(f"  Skipped (no relevant docs): {num_skipped_no_relevant}")
+
+        if num_evaluated == 0:
+            print("\nERROR: No questions were evaluated!")
+            print("Possible issues:")
+            print("  1. Question IDs don't match between retrieval results and ground truth")
+            print("  2. No supporting facts found in the corpus")
+            return {}
 
         # Aggregate metrics (mean across all queries)
         aggregated_metrics = {}
