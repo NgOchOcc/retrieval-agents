@@ -161,26 +161,77 @@ class HotpotQADataLoader:
             print(f"Loaded {len(paragraphs)} paragraphs from cache")
             return paragraphs
 
-        # Load Wikipedia from HuggingFace (using wikipedia dataset)
+        # Load Wikipedia from HuggingFace
         print("Downloading Wikipedia dataset from HuggingFace...")
-        wiki_dataset = load_dataset("wikipedia", "20220301.en", split="train")
+        print("Note: This will download data on first run...")
+        print("\nTIP: For faster setup, run: python download_wikipedia.py --max_passages 100000")
+        print("     This will pre-download a smaller corpus for testing.\n")
+
+        use_dpr_format = False
+        wiki_dataset = None
+
+        # Try multiple sources in order of preference
+        sources = [
+            ("facebook/dpr-ctx_encoder-multiset-base", True, "DPR passages"),
+            ("wiki_dpr", True, "wiki_dpr passages"),
+            ("wikimedia/wikipedia", False, "Wikipedia articles"),
+        ]
+
+        for source, is_dpr, description in sources:
+            try:
+                print(f"Attempting to load {description} from '{source}'...")
+                if source == "wiki_dpr":
+                    wiki_dataset = load_dataset(source, "psgs_w100.multiset.no_index", split="train")
+                elif source == "wikimedia/wikipedia":
+                    wiki_dataset = load_dataset(source, "20231101.en", split="train")
+                else:
+                    wiki_dataset = load_dataset(source, split="train")
+
+                use_dpr_format = is_dpr
+                print(f"Successfully loaded {description}")
+                break
+            except Exception as e:
+                print(f"Failed to load from {source}: {e}")
+                continue
+
+        if wiki_dataset is None:
+            raise RuntimeError(
+                "Could not load Wikipedia corpus from any source. "
+                "Please run 'python download_wikipedia.py' first or check your internet connection."
+            )
 
         paragraphs = []
         para_counter = 0
 
-        for doc in tqdm(wiki_dataset, desc="Processing Wikipedia articles"):
-            title = doc["title"]
-            text = doc["text"]
+        if use_dpr_format:
+            # DPR format: already chunked into passages
+            print("Using DPR pre-chunked passages...")
+            for doc in tqdm(wiki_dataset, desc="Processing Wikipedia passages"):
+                title = doc.get("title", "")
+                text = doc.get("text", "")
 
-            # Split into sentences (simple split by periods)
-            sentences = self._split_into_sentences(text)
-
-            for sent_id, sentence in enumerate(sentences):
-                if sentence.strip():  # Skip empty sentences
+                if text.strip():
                     para_id = f"wiki_{para_counter}"
-                    paragraph = Paragraph(para_id=para_id, title=title, text=sentence.strip(), sentence_id=sent_id)
+                    # DPR passages are already at good granularity
+                    paragraph = Paragraph(para_id=para_id, title=title, text=text.strip(), sentence_id=0)
                     paragraphs.append(paragraph)
                     para_counter += 1
+        else:
+            # Standard Wikipedia format: need to chunk into sentences
+            print("Processing Wikipedia articles into sentences...")
+            for doc in tqdm(wiki_dataset, desc="Processing Wikipedia articles"):
+                title = doc["title"]
+                text = doc["text"]
+
+                # Split into sentences (simple split by periods)
+                sentences = self._split_into_sentences(text)
+
+                for sent_id, sentence in enumerate(sentences):
+                    if sentence.strip():  # Skip empty sentences
+                        para_id = f"wiki_{para_counter}"
+                        paragraph = Paragraph(para_id=para_id, title=title, text=sentence.strip(), sentence_id=sent_id)
+                        paragraphs.append(paragraph)
+                        para_counter += 1
 
         print(f"Processed {len(paragraphs)} paragraphs from Wikipedia")
 

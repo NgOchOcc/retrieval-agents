@@ -27,6 +27,26 @@ pip install faiss-gpu
 
 ## Quick Start
 
+### Download Wikipedia Corpus (First Time Setup)
+
+The benchmark requires a Wikipedia corpus. You have two options:
+
+**Option 1: Quick Test (Recommended for first run)**
+```bash
+# Download a smaller Wikipedia corpus for testing (~100K passages)
+python download_wikipedia.py --max_passages 100000
+
+# Then run benchmark
+python benchmark.py --model bge-base --batch_size 32 --max_samples 100
+```
+
+**Option 2: Full Wikipedia Corpus**
+```bash
+# Download full DPR Wikipedia corpus (~21M passages, ~20GB)
+# This happens automatically on first benchmark run
+python benchmark.py --model bge-base --batch_size 32
+```
+
 ### Basic Usage
 
 ```bash
@@ -204,13 +224,36 @@ Results are automatically saved to `cache/results/` as JSON files:
 
 ## Troubleshooting
 
+### Wikipedia Dataset Loading Error
+
+If you see an error like `RuntimeError: Dataset scripts are no longer supported`:
+
+**Solution 1: Use the download script**
+```bash
+# Download a subset for testing
+python download_wikipedia.py --max_passages 100000
+
+# Or download full corpus
+python download_wikipedia.py
+```
+
+**Solution 2: The benchmark will automatically try multiple sources**
+The code tries loading from:
+1. `facebook/dpr-ctx_encoder-multiset-base` (DPR passages)
+2. `wiki_dpr` (alternative DPR source)
+3. `wikimedia/wikipedia` (raw articles)
+
+If all fail, use the download script above.
+
 ### Out of Memory
 - Reduce `--batch_size`
 - Use smaller model (e.g., `bge-small` instead of `bge-large`)
 - Use CPU: `--device cpu`
+- Download smaller Wikipedia subset: `python download_wikipedia.py --max_passages 100000`
 
 ### Slow Wikipedia Download
-- First run downloads ~20GB Wikipedia dump
+- First run downloads ~20GB Wikipedia dump (full corpus)
+- For testing, use: `python download_wikipedia.py --max_passages 100000`
 - Subsequent runs use cached version at `cache/wikipedia_paragraphs.json`
 
 ### FAISS GPU Error
