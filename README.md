@@ -77,16 +77,30 @@ Options:
   --dataset_split SPLIT      Dataset split (default: test)
   --dataset_config CONFIG    Dataset config (default: fullwiki)
   --no_faiss                 Use simple numpy retriever instead of FAISS
+  --index_type TYPE          FAISS index type: Flat, IVF, or IVFPQ (default: Flat)
+  --no_gpu_index             Disable GPU for FAISS index (use CPU only)
+  --gpu_id ID                GPU device ID for indexing (default: 0)
 ```
+
+**GPU Acceleration**: See [GPU_GUIDE.md](GPU_GUIDE.md) for detailed GPU setup and optimization.
 
 ### Example Commands
 
 ```bash
-# Benchmark multiple models
+# Benchmark multiple models (with GPU)
 python benchmark.py --model bge-base --batch_size 32
 python benchmark.py --model bge-large --batch_size 64
 python benchmark.py --model e5-base --batch_size 32
 python benchmark.py --model e5-large --batch_size 64
+
+# Use IVF index for faster search on large corpus
+python benchmark.py --model bge-base --index_type IVF --batch_size 64
+
+# Use GPU for encoding, CPU for indexing
+python benchmark.py --model bge-base --device cuda --no_gpu_index
+
+# Multi-GPU: Use GPU 1 for indexing
+python benchmark.py --model bge-base --gpu_id 1
 
 # Use custom HuggingFace model
 python benchmark.py --model "sentence-transformers/all-MiniLM-L6-v2" --batch_size 128

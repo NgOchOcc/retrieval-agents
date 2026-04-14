@@ -101,11 +101,15 @@ class RetrievalBenchmark:
             embedding_dim = self.retriever.get_embedding_dim()
 
             if self.config.use_faiss:
+                # Determine if GPU should be used for index
+                use_gpu = self.config.use_gpu_index and "cuda" in self.config.device
+
                 self.indexer = FAISSIndexer(
                     embedding_dim=embedding_dim,
                     index_type=self.config.faiss_index_type,
-                    use_gpu="cuda" in self.config.device,
+                    use_gpu=use_gpu,
                     normalize=self.config.normalize_embeddings,
+                    gpu_id=self.config.gpu_id,
                 )
                 self.indexer.load(index_dir)
             else:
@@ -128,11 +132,15 @@ class RetrievalBenchmark:
         doc_ids = [p.para_id for p in paragraphs]
 
         if self.config.use_faiss:
+            # Determine if GPU should be used for index
+            use_gpu = self.config.use_gpu_index and "cuda" in self.config.device
+
             self.indexer = FAISSIndexer(
                 embedding_dim=embedding_dim,
                 index_type=self.config.faiss_index_type,
-                use_gpu="cuda" in self.config.device,
+                use_gpu=use_gpu,
                 normalize=self.config.normalize_embeddings,
+                gpu_id=self.config.gpu_id,
             )
             self.indexer.add_documents(corpus_embeddings, doc_ids)
 
@@ -269,6 +277,9 @@ def main():
     parser.add_argument("--dataset_split", type=str, default="test", help="Dataset split")
     parser.add_argument("--dataset_config", type=str, default="fullwiki", help="Dataset config")
     parser.add_argument("--no_faiss", action="store_true", help="Use simple numpy retriever instead of FAISS")
+    parser.add_argument("--index_type", type=str, default="Flat", help="FAISS index type (Flat, IVF, IVFPQ)")
+    parser.add_argument("--no_gpu_index", action="store_true", help="Disable GPU for FAISS index (use CPU only)")
+    parser.add_argument("--gpu_id", type=int, default=0, help="GPU device ID for indexing")
 
     args = parser.parse_args()
 
@@ -285,6 +296,9 @@ def main():
         dataset_split=args.dataset_split,
         dataset_config=args.dataset_config,
         use_faiss=not args.no_faiss,
+        faiss_index_type=args.index_type,
+        use_gpu_index=not args.no_gpu_index,
+        gpu_id=args.gpu_id,
         k_values=[1, 3, 5, 10, 20],
     )
 

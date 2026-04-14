@@ -46,7 +46,9 @@ cache/
 .DS_Store
 Thumbs.db
 
-# Results
-results/
-*.json
-!requirements.txt
+# Cache and large files
+cache/wikipedia_paragraphs.json
+cache/index/
+
+# But keep results
+# cache/results/ is NOT ignored - we want to track benchmark results

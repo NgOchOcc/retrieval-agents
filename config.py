@@ -21,8 +21,10 @@ class BenchmarkConfig:
 
     # Index configuration
     use_faiss: bool = True
-    faiss_index_type: str = "Flat"  # 'Flat' or 'IVF'
+    faiss_index_type: str = "Flat"  # 'Flat', 'IVF', or 'IVFPQ'
     normalize_embeddings: bool = True
+    use_gpu_index: bool = True  # Use GPU for FAISS index (if available)
+    gpu_id: int = 0  # GPU device ID for indexing
 
     # Evaluation configuration
     k_values: List[int] = None

@@ -19,6 +19,7 @@ class FAISSIndexer:
         index_type: str = "Flat",
         use_gpu: bool = False,
         normalize: bool = True,
+        gpu_id: int = 0,
     ):
         """
         Initialize FAISS indexer.
@@ -28,46 +29,85 @@ class FAISSIndexer:
             index_type: Type of FAISS index ('Flat' or 'IVF')
             use_gpu: Whether to use GPU for index
             normalize: Whether to normalize embeddings (for cosine similarity)
+            gpu_id: GPU device ID to use (default: 0)
         """
         self.embedding_dim = embedding_dim
         self.index_type = index_type
         self.use_gpu = use_gpu
         self.normalize = normalize
+        self.gpu_id = gpu_id
 
         self.index = None
         self.doc_ids = []
+        self.gpu_resources = None
 
-        print(f"Initializing FAISS index (type={index_type}, dim={embedding_dim})")
+        # Check GPU availability
+        if self.use_gpu:
+            num_gpus = faiss.get_num_gpus()
+            if num_gpus == 0:
+                print("Warning: GPU requested but no GPU available. Using CPU instead.")
+                self.use_gpu = False
+            else:
+                print(f"GPU indexing enabled (GPUs available: {num_gpus}, using GPU {gpu_id})")
+                # Create persistent GPU resources
+                self.gpu_resources = faiss.StandardGpuResources()
+                # Set GPU memory (optional, defaults to all available memory)
+                # self.gpu_resources.setTempMemory(256 * 1024 * 1024)  # 256MB temp memory
+
+        print(f"Initializing FAISS index (type={index_type}, dim={embedding_dim}, gpu={self.use_gpu})")
         self._create_index()
 
     def _create_index(self):
         """Create FAISS index."""
+        # Create CPU index first
+        cpu_index = None
+
         if self.index_type == "Flat":
-            # Flat L2 index (exact search)
+            # Flat index (exact search)
             if self.normalize:
                 # Use inner product for normalized vectors (equivalent to cosine similarity)
-                self.index = faiss.IndexFlatIP(self.embedding_dim)
+                cpu_index = faiss.IndexFlatIP(self.embedding_dim)
             else:
-                self.index = faiss.IndexFlatL2(self.embedding_dim)
+                cpu_index = faiss.IndexFlatL2(self.embedding_dim)
 
         elif self.index_type == "IVF":
             # IVF index (approximate search, faster for large corpora)
-            nlist = 100  # number of clusters
+            nlist = 4096  # number of clusters (increased for better accuracy)
             quantizer = faiss.IndexFlatL2(self.embedding_dim)
 
             if self.normalize:
-                self.index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, nlist, faiss.METRIC_INNER_PRODUCT)
+                cpu_index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, nlist, faiss.METRIC_INNER_PRODUCT)
             else:
-                self.index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, nlist, faiss.METRIC_L2)
+                cpu_index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, nlist, faiss.METRIC_L2)
+
+        elif self.index_type == "IVFPQ":
+            # IVF with Product Quantization (more memory efficient)
+            nlist = 4096
+            m = 64  # number of subquantizers
+            quantizer = faiss.IndexFlatL2(self.embedding_dim)
+
+            if self.normalize:
+                cpu_index = faiss.IndexIVFPQ(quantizer, self.embedding_dim, nlist, m, 8, faiss.METRIC_INNER_PRODUCT)
+            else:
+                cpu_index = faiss.IndexIVFPQ(quantizer, self.embedding_dim, nlist, m, 8)
 
         else:
             raise ValueError(f"Unsupported index type: {self.index_type}")
 
         # Move to GPU if requested
-        if self.use_gpu and faiss.get_num_gpus() > 0:
-            print("Moving index to GPU")
-            res = faiss.StandardGpuResources()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+        if self.use_gpu and self.gpu_resources is not None:
+            print(f"Moving index to GPU {self.gpu_id}...")
+            try:
+                # Use the persistent GPU resources
+                self.index = faiss.index_cpu_to_gpu(self.gpu_resources, self.gpu_id, cpu_index)
+                print(f"Index successfully moved to GPU {self.gpu_id}")
+            except Exception as e:
+                print(f"Warning: Failed to move index to GPU: {e}")
+                print("Falling back to CPU index")
+                self.index = cpu_index
+                self.use_gpu = False
+        else:
+            self.index = cpu_index
 
     def add_documents(self, embeddings: np.ndarray, doc_ids: List[str]):
         """
@@ -188,14 +228,23 @@ class FAISSIndexer:
         self.index_type = config["index_type"]
         self.normalize = config["normalize"]
 
-        # Load FAISS index
+        # Load FAISS index (always loads to CPU first)
         index_path = os.path.join(save_dir, "index.faiss")
-        self.index = faiss.read_index(index_path)
+        cpu_index = faiss.read_index(index_path)
 
         # Move to GPU if requested
-        if self.use_gpu and faiss.get_num_gpus() > 0:
-            res = faiss.StandardGpuResources()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+        if self.use_gpu and self.gpu_resources is not None:
+            print(f"Moving loaded index to GPU {self.gpu_id}...")
+            try:
+                self.index = faiss.index_cpu_to_gpu(self.gpu_resources, self.gpu_id, cpu_index)
+                print(f"Index successfully moved to GPU {self.gpu_id}")
+            except Exception as e:
+                print(f"Warning: Failed to move index to GPU: {e}")
+                print("Using CPU index instead")
+                self.index = cpu_index
+                self.use_gpu = False
+        else:
+            self.index = cpu_index
 
         # Load doc IDs
         doc_ids_path = os.path.join(save_dir, "doc_ids.pkl")

@@ -3,8 +3,15 @@ torch>=2.0.0
 transformers>=4.30.0
 datasets>=2.14.0
 numpy>=1.24.0
-faiss-cpu>=1.7.4  # Use faiss-gpu if you have CUDA support
 tqdm>=4.65.0
+
+# FAISS - Choose one:
+# For CPU-only:
+faiss-cpu>=1.7.4
+
+# For GPU acceleration (recommended if you have CUDA):
+# Uncomment the line below and comment out faiss-cpu
+# faiss-gpu>=1.7.4
 
 # Optional: For better sentence splitting
 # nltk>=3.8.0
