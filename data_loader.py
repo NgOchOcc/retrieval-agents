@@ -70,11 +70,17 @@ class HotpotQADataLoader:
 
         examples = []
         for item in tqdm(dataset, desc="Processing examples"):
+            # Check if supporting_facts is available
+            supporting_facts = []
+            if "supporting_facts" in item and item["supporting_facts"]:
+                if "title" in item["supporting_facts"] and "sent_id" in item["supporting_facts"]:
+                    supporting_facts = list(zip(item["supporting_facts"]["title"], item["supporting_facts"]["sent_id"]))
+
             example = HotpotQAExample(
                 question_id=item["id"],
                 question=item["question"],
                 answer=item["answer"],
-                supporting_facts=list(zip(item["supporting_facts"]["title"], item["supporting_facts"]["sent_id"])),
+                supporting_facts=supporting_facts,
                 context=list(zip(item["context"]["title"], item["context"]["sentences"])),
                 type=item["type"],
                 level=item["level"],
@@ -82,6 +88,19 @@ class HotpotQADataLoader:
             examples.append(example)
 
         print(f"Loaded {len(examples)} examples")
+
+        # Check if supporting facts are available
+        examples_with_supporting_facts = sum(1 for ex in examples if ex.supporting_facts)
+        print(f"Examples with supporting facts: {examples_with_supporting_facts}/{len(examples)}")
+
+        if examples_with_supporting_facts == 0:
+            print("\nWARNING: No supporting facts found in dataset!")
+            print(f"This is expected for '{self.config}' split='{self.split}'")
+            print("HotpotQA fullwiki test set does not include supporting facts labels")
+            print("\nRecommendation: Use one of these instead:")
+            print("  1. dataset_config='distractor' (has supporting facts)")
+            print("  2. split='validation' (dev set has supporting facts)")
+
         return examples
 
     def build_corpus_from_examples(self, examples: List[HotpotQAExample]) -> Tuple[List[Paragraph], Dict]:
@@ -314,7 +333,18 @@ class HotpotQADataLoader:
 
         print(f"Created ground truth for {len(ground_truth)} questions")
         print(f"Total supporting facts: {total_supporting_facts}")
-        print(f"Found in corpus: {found_supporting_facts} ({found_supporting_facts/total_supporting_facts*100:.1f}%)")
+        if total_supporting_facts > 0:
+            print(f"Found in corpus: {found_supporting_facts} ({found_supporting_facts/total_supporting_facts*100:.1f}%)")
+        else:
+            print(f"ERROR: No supporting facts found in examples!")
+            print(f"This means example.supporting_facts is empty for all examples")
+            print(f"\nDEBUG: Checking first example:")
+            if examples:
+                ex = examples[0]
+                print(f"  Question ID: {ex.question_id}")
+                print(f"  Supporting facts: {ex.supporting_facts}")
+                print(f"  Context: {len(ex.context)} documents")
+            return ground_truth
 
         # Debug: Show sample mismatches
         if found_supporting_facts < total_supporting_facts:
