@@ -6,6 +6,13 @@ from typing import List, Optional
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModel
 from torch.utils.data import DataLoader, Dataset
+import torch.multiprocessing as mp
+
+# Set multiprocessing start method to 'spawn' for CUDA compatibility
+try:
+    mp.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass  # Already set
 
 
 class TextDataset(Dataset):
@@ -23,9 +30,9 @@ class TextDataset(Dataset):
         return self.texts[idx]
 
 
-def collate_fn(batch, tokenizer, max_length, device):
-    """Collate function for batching with tokenization."""
-    # Tokenize batch
+def collate_fn(batch, tokenizer, max_length):
+    """Collate function for batching with tokenization (CPU only - device transfer in main process)."""
+    # Tokenize batch on CPU (workers can do this safely)
     encoded = tokenizer(
         batch,
         padding=True,
@@ -33,8 +40,8 @@ def collate_fn(batch, tokenizer, max_length, device):
         max_length=max_length,
         return_tensors="pt",
     )
-    # Move to device
-    return {k: v.to(device) for k, v in encoded.items()}
+    # Return on CPU - will move to GPU in main process
+    return encoded
 
 
 class DenseRetrieverOptimized:
@@ -117,14 +124,16 @@ class DenseRetrieverOptimized:
         dataset = TextDataset(texts, self.tokenizer, self.max_length)
 
         # Use DataLoader for efficient batching and multi-processing
+        # Workers do tokenization on CPU, main process moves to GPU
         dataloader = DataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
+            persistent_workers=self.num_workers > 0,  # Keep workers alive
             collate_fn=lambda batch: collate_fn(
-                batch, self.tokenizer, self.max_length, self.device
+                batch, self.tokenizer, self.max_length
             ),
         )
 
@@ -140,6 +149,9 @@ class DenseRetrieverOptimized:
 
         with torch.no_grad():
             for batch in dataloader:
+                # Move batch to device (from CPU/pinned memory to GPU)
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+
                 # Get embeddings
                 outputs = self.model(**batch)
 

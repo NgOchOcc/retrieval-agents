@@ -7,8 +7,16 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 import torch
+import torch.multiprocessing as mp
 import numpy as np
 from tqdm import tqdm
+
+# Set multiprocessing start method for CUDA compatibility
+if __name__ == "__main__":
+    try:
+        mp.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass  # Already set
 
 from config import BenchmarkConfig, SUPPORTED_MODELS
 from data_loader import HotpotQADataLoader, Paragraph
