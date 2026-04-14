@@ -12,6 +12,9 @@ class BenchmarkConfig:
     model_name: str = "BAAI/bge-base-en-v1.5"
     batch_size: int = 32
     max_length: int = 512
+    auto_batch_size: bool = False  # Auto-detect optimal batch size
+    num_workers: int = 4  # Number of workers for data loading (0 = main process only)
+    pin_memory: bool = True  # Use pinned memory for faster GPU transfer
 
     # Dataset configuration
     dataset_name: str = "hotpot_qa"

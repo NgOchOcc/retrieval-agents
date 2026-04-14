@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from config import BenchmarkConfig, SUPPORTED_MODELS
 from data_loader import HotpotQADataLoader, Paragraph
-from retrieval_model import DenseRetriever
+from retrieval_model_optimized import DenseRetrieverOptimized
 from indexer import FAISSIndexer, SimpleRetriever
 from metrics import BenchmarkEvaluator
 
@@ -47,14 +47,22 @@ class RetrievalBenchmark:
             cache_dir=self.config.cache_dir,
         )
 
-        # Initialize retrieval model
-        self.retriever = DenseRetriever(
+        # Initialize optimized retrieval model
+        self.retriever = DenseRetrieverOptimized(
             model_name=self.config.model_name,
             device=self.config.device,
             normalize_embeddings=self.config.normalize_embeddings,
             max_length=self.config.max_length,
             batch_size=self.config.batch_size,
+            num_workers=self.config.num_workers,
+            pin_memory=self.config.pin_memory,
         )
+
+        # Auto-detect optimal batch size if requested
+        if self.config.auto_batch_size and self.config.device == "cuda":
+            optimal_bs = self.retriever.auto_batch_size()
+            self.config.batch_size = optimal_bs
+            self.retriever.batch_size = optimal_bs
 
         # Initialize evaluator
         self.evaluator = BenchmarkEvaluator(k_values=self.config.k_values)
@@ -280,6 +288,9 @@ def main():
     parser.add_argument("--index_type", type=str, default="Flat", help="FAISS index type (Flat, IVF, IVFPQ)")
     parser.add_argument("--no_gpu_index", action="store_true", help="Disable GPU for FAISS index (use CPU only)")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU device ID for indexing")
+    parser.add_argument("--auto_batch_size", action="store_true", help="Auto-detect optimal batch size for GPU")
+    parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading (0 for main process only)")
+    parser.add_argument("--no_pin_memory", action="store_true", help="Disable pinned memory (use if having memory issues)")
 
     args = parser.parse_args()
 
@@ -299,6 +310,9 @@ def main():
         faiss_index_type=args.index_type,
         use_gpu_index=not args.no_gpu_index,
         gpu_id=args.gpu_id,
+        auto_batch_size=args.auto_batch_size,
+        num_workers=args.num_workers,
+        pin_memory=not args.no_pin_memory,
         k_values=[1, 3, 5, 10, 20],
     )
 
