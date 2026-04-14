@@ -23,6 +23,7 @@ from data_loader import HotpotQADataLoader, Paragraph
 from retrieval_model_optimized import DenseRetrieverOptimized
 from indexer import FAISSIndexer, SimpleRetriever
 from metrics import BenchmarkEvaluator
+from sampling_strategies import RetrievalSampler, SamplingConfig
 
 
 class RetrievalBenchmark:
@@ -75,7 +76,20 @@ class RetrievalBenchmark:
         # Initialize evaluator
         self.evaluator = BenchmarkEvaluator(k_values=self.config.k_values)
 
+        # Initialize sampler
+        sampling_config = SamplingConfig(
+            strategy=self.config.sampling_strategy,
+            expansion_factor=self.config.expansion_factor,
+            random_ratio=self.config.random_ratio,
+            seed=self.config.sampling_seed,
+        )
+        self.sampler = RetrievalSampler(sampling_config)
+
         print("Setup complete!")
+        if self.config.sampling_strategy != "top_k":
+            print(f"Using sampling strategy: {self.config.sampling_strategy}")
+            print(f"  Expansion factor: {self.config.expansion_factor}")
+            print(f"  Random ratio: {self.config.random_ratio}")
 
     def load_data(self):
         """Load and prepare dataset."""
@@ -196,15 +210,42 @@ class RetrievalBenchmark:
         print("Encoding queries...")
         query_embeddings = self.retriever.encode_queries(queries, show_progress=True)
 
-        # Retrieve documents
+        # Retrieve documents (with expansion if using sampling)
         print("Searching index...")
         max_k = max(self.config.k_values)
-        results = self.indexer.search(query_embeddings, k=max_k)
 
-        # Convert to dict
-        retrieval_results = {}
-        for qid, result in zip(question_ids, results):
-            retrieval_results[qid] = result.doc_ids
+        # If using sampling strategy, retrieve more documents
+        if self.config.sampling_strategy != "top_k":
+            retrieval_k = max_k * self.config.expansion_factor
+            print(f"Retrieving top-{retrieval_k} (expansion_factor={self.config.expansion_factor})")
+        else:
+            retrieval_k = max_k
+
+        results = self.indexer.search(query_embeddings, k=retrieval_k)
+
+        # Apply sampling strategy
+        if self.config.sampling_strategy != "top_k":
+            print(f"Applying sampling strategy: {self.config.sampling_strategy}")
+            print(f"  Random ratio: {self.config.random_ratio}")
+
+            # Extract doc_ids and scores
+            batch_doc_ids = [result.doc_ids for result in results]
+            batch_scores = [result.scores for result in results]
+
+            # Apply sampling to get final top-k for each query
+            sampled_doc_ids, sampled_scores = self.sampler.apply_to_batch(
+                batch_doc_ids, batch_scores, max_k
+            )
+
+            # Convert to dict
+            retrieval_results = {}
+            for qid, doc_ids in zip(question_ids, sampled_doc_ids):
+                retrieval_results[qid] = doc_ids
+        else:
+            # Standard top-k (no sampling)
+            retrieval_results = {}
+            for qid, result in zip(question_ids, results):
+                retrieval_results[qid] = result.doc_ids
 
         return retrieval_results
 
@@ -290,6 +331,9 @@ class RetrievalBenchmark:
             "dataset_config": self.config.dataset_config,
             "dataset_split": self.config.dataset_split,
             "k_values": self.config.k_values,
+            "sampling_strategy": self.config.sampling_strategy,
+            "expansion_factor": self.config.expansion_factor if self.config.sampling_strategy != "top_k" else None,
+            "random_ratio": self.config.random_ratio if self.config.sampling_strategy != "top_k" else None,
             "metrics": metrics,
             "timestamp": timestamp,
         }
@@ -323,6 +367,17 @@ def main():
     parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading (0 for main process only)")
     parser.add_argument("--no_pin_memory", action="store_true", help="Disable pinned memory (use if having memory issues)")
 
+    # Sampling strategy arguments
+    parser.add_argument("--sampling_strategy", type=str, default="top_k",
+                       choices=["top_k", "random_sample", "diverse_sample"],
+                       help="Sampling strategy for retrieval results")
+    parser.add_argument("--expansion_factor", type=int, default=4,
+                       help="Expansion factor for sampling (retrieve top expansion_factor*k)")
+    parser.add_argument("--random_ratio", type=float, default=0.3,
+                       help="Random sampling ratio (0 < x < 1)")
+    parser.add_argument("--sampling_seed", type=int, default=42,
+                       help="Random seed for sampling")
+
     args = parser.parse_args()
 
     # Resolve model name
@@ -344,6 +399,10 @@ def main():
         auto_batch_size=args.auto_batch_size,
         num_workers=args.num_workers,
         pin_memory=not args.no_pin_memory,
+        sampling_strategy=args.sampling_strategy,
+        expansion_factor=args.expansion_factor,
+        random_ratio=args.random_ratio,
+        sampling_seed=args.sampling_seed,
         k_values=[1, 3, 5, 10, 20],
     )
 

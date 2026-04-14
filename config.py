@@ -32,6 +32,12 @@ class BenchmarkConfig:
     # Evaluation configuration
     k_values: List[int] = None
 
+    # Sampling configuration
+    sampling_strategy: str = "top_k"  # 'top_k', 'random_sample', 'diverse_sample'
+    expansion_factor: int = 4  # For sampling: retrieve top (expansion_factor * k) first
+    random_ratio: float = 0.3  # For random sampling: ratio of random selection (0 < x < 1)
+    sampling_seed: int = 42  # Random seed for sampling
+
     # Cache configuration
     cache_dir: str = "./cache"
     save_embeddings: bool = True
