@@ -30,18 +30,24 @@ class TextDataset(Dataset):
         return self.texts[idx]
 
 
-def collate_fn(batch, tokenizer, max_length):
-    """Collate function for batching with tokenization (CPU only - device transfer in main process)."""
-    # Tokenize batch on CPU (workers can do this safely)
-    encoded = tokenizer(
-        batch,
-        padding=True,
-        truncation=True,
-        max_length=max_length,
-        return_tensors="pt",
-    )
-    # Return on CPU - will move to GPU in main process
-    return encoded
+class CollateFn:
+    """Collate function for batching with tokenization (picklable for multiprocessing)."""
+
+    def __init__(self, tokenizer, max_length):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+
+    def __call__(self, batch):
+        """Tokenize batch on CPU (workers can do this safely)."""
+        encoded = self.tokenizer(
+            batch,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+        # Return on CPU - will move to GPU in main process
+        return encoded
 
 
 class DenseRetrieverOptimized:
@@ -125,6 +131,9 @@ class DenseRetrieverOptimized:
 
         # Use DataLoader for efficient batching and multi-processing
         # Workers do tokenization on CPU, main process moves to GPU
+        # Use class-based collate_fn (picklable for spawn method)
+        collate_fn = CollateFn(self.tokenizer, self.max_length)
+
         dataloader = DataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -132,9 +141,7 @@ class DenseRetrieverOptimized:
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,  # Keep workers alive
-            collate_fn=lambda batch: collate_fn(
-                batch, self.tokenizer, self.max_length
-            ),
+            collate_fn=collate_fn,
         )
 
         all_embeddings = []
