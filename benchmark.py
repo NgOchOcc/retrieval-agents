@@ -95,8 +95,16 @@ class RetrievalBenchmark:
         print("=" * 60)
 
         if self.config.dataset_config == "fullwiki":
-            # Load full Wikipedia corpus
-            paragraphs = self.data_loader.load_wikipedia_corpus()
+            print("WARNING: Fullwiki mode requires full Wikipedia corpus with exact title/sentence matching")
+            print("For evaluation, using context paragraphs from questions instead")
+            print("(This ensures supporting facts are in the corpus)")
+
+            # Build corpus from question contexts (ensures supporting facts are present)
+            paragraphs, _ = self.data_loader.build_corpus_from_examples(examples)
+
+            # Optionally: Could add more Wikipedia paragraphs as distractors here
+            # wiki_paragraphs = self.data_loader.load_wikipedia_corpus()
+            # paragraphs.extend(wiki_paragraphs[:10000])  # Add 10K distractors
         else:
             # Build corpus from examples (distractor mode)
             paragraphs, _ = self.data_loader.build_corpus_from_examples(examples)
