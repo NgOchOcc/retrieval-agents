@@ -16,6 +16,7 @@ from data import HotpotQALoader
 from models import get_encoder, SUPPORTED_MODELS
 from retrieval import FAISSRetriever
 from evaluation import RetrievalEvaluator
+from utils import print_gpu_info, get_optimal_batch_sizes
 
 
 def set_seed(seed: int):
@@ -65,11 +66,27 @@ def main():
     print("=" * 60)
     print(f"Model: {config.model_name}")
     print(f"Dataset: {config.dataset_type} ({config.dataset_split})")
-    print(f"Device: {config.device or 'auto'}")
-    print(f"Seed: {config.seed}")
     if config.max_samples:
         print(f"Max samples: {config.max_samples}")
+    print(f"Seed: {config.seed}")
     print("=" * 60)
+
+    # Print GPU info
+    print_gpu_info()
+
+    # Auto-adjust batch sizes based on GPU and model size
+    model_size = "large" if "large" in config.model_name.lower() else "base"
+    suggested_passage_batch, suggested_query_batch = get_optimal_batch_sizes(model_size)
+
+    # Use suggested batch sizes if not explicitly set by user
+    if config.passage_batch_size == 256:  # default value
+        config.passage_batch_size = suggested_passage_batch
+    if config.query_batch_size == 64:  # default value
+        config.query_batch_size = suggested_query_batch
+
+    print(f"\nBatch sizes:")
+    print(f"  Passage: {config.passage_batch_size}")
+    print(f"  Query: {config.query_batch_size}")
 
     # Validate model
     if config.model_name not in SUPPORTED_MODELS:

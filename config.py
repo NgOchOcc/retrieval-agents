@@ -24,9 +24,9 @@ class Config:
     max_k: int = 20  # Maximum k for retrieval
     k_values: List[int] = field(default_factory=lambda: [1, 5, 10, 20])
 
-    # Batch sizes
-    passage_batch_size: int = 128
-    query_batch_size: int = 32
+    # Batch sizes (auto-adjusted based on GPU memory if available)
+    passage_batch_size: int = 256  # Increased for GPU
+    query_batch_size: int = 64  # Increased for GPU
 
     # Reproducibility
     seed: int = 42
@@ -117,14 +117,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--passage_batch_size",
         type=int,
-        default=128,
-        help="Batch size for encoding passages"
+        default=256,
+        help="Batch size for encoding passages (default optimized for GPU)"
     )
     parser.add_argument(
         "--query_batch_size",
         type=int,
-        default=32,
-        help="Batch size for encoding queries"
+        default=64,
+        help="Batch size for encoding queries (default optimized for GPU)"
     )
 
     # Reproducibility

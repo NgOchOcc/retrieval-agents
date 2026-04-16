@@ -22,15 +22,45 @@ This project evaluates **BGE** and **E5** embedding models on their ability to r
 
 ## Installation
 
+### Basic Installation
+
 ```bash
 pip install -r requirements.txt
 ```
 
-For GPU support, install `faiss-gpu` instead of `faiss-cpu`:
+### GPU Setup (Recommended for Speed)
+
+For **significant speedup** (10-50x faster), use GPU:
+
+1. **Install PyTorch with CUDA:**
+```bash
+# Check CUDA version first: nvidia-smi
+# For CUDA 11.8
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+
+# For CUDA 12.1
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+```
+
+2. **Install FAISS with GPU support:**
 ```bash
 pip uninstall faiss-cpu
 pip install faiss-gpu
 ```
+
+3. **Test GPU:**
+```bash
+python scripts/test_gpu.py
+```
+
+You should see:
+```
+GPU Available: True
+Device Name: NVIDIA GeForce RTX 3090
+Loaded model on cuda:0
+```
+
+**Note:** Batch sizes are optimized for GPU (passage=256, query=64). Reduce if you encounter OOM errors.
 
 ## Quick Start
 

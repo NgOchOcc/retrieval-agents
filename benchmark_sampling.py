@@ -23,6 +23,7 @@ from data import HotpotQALoader
 from models import get_encoder
 from retrieval import SamplingRetriever
 from evaluation import RetrievalEvaluator
+from utils import print_gpu_info, get_optimal_batch_sizes
 
 
 def parse_args():
@@ -217,6 +218,23 @@ def main():
     print(f"Samples: {args.max_samples}")
     print(f"Strategy: Retrieve top-{args.n}, sample with p={args.p}, select top-{args.k}")
     print("=" * 80)
+
+    # Print GPU info
+    print_gpu_info()
+
+    # Auto-adjust batch sizes based on GPU
+    model_size = "large" if "large" in args.model_name.lower() else "base"
+    suggested_passage_batch, suggested_query_batch = get_optimal_batch_sizes(model_size)
+
+    if args.passage_batch_size == 128:  # default value
+        args.passage_batch_size = suggested_passage_batch
+    if args.query_batch_size == 32:  # default value
+        args.query_batch_size = suggested_query_batch
+
+    print(f"\nBatch sizes:")
+    print(f"  Passage: {args.passage_batch_size}")
+    print(f"  Query: {args.query_batch_size}")
+    print("")
 
     # Validate parameters
     if not (0 < args.p < 1):

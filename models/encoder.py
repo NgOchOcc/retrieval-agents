@@ -20,8 +20,18 @@ class BaseEncoder(ABC):
         """
         self.model_name = model_name
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = SentenceTransformer(model_name, device=self.device)
-        print(f"Loaded {model_name} on {self.device}")
+
+        # Load model and explicitly move to device
+        self.model = SentenceTransformer(model_name)
+        self.model = self.model.to(self.device)
+
+        # Verify device
+        actual_device = next(self.model.parameters()).device
+        print(f"Loaded {model_name} on {actual_device}")
+
+        if torch.cuda.is_available():
+            print(f"GPU Available: {torch.cuda.get_device_name(0)}")
+            print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
     @abstractmethod
     def format_query(self, query: str) -> str:
@@ -52,12 +62,16 @@ class BaseEncoder(ABC):
         Returns:
             Numpy array of shape (len(texts), embedding_dim)
         """
+        # Ensure model is on correct device
+        self.model = self.model.to(self.device)
+
         embeddings = self.model.encode(
             texts,
             batch_size=batch_size,
             normalize_embeddings=normalize,
             show_progress_bar=show_progress,
-            convert_to_numpy=True
+            convert_to_numpy=True,
+            device=self.device  # Explicitly pass device
         )
         return embeddings
 
