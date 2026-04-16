@@ -40,19 +40,21 @@ class FAISSIndexer:
         self.index = None
         self.doc_ids = []
         self.gpu_resources = None
+        self.cpu_index = None  # Keep CPU index reference for IVF training
 
         # Check GPU availability
         if self.use_gpu:
             num_gpus = faiss.get_num_gpus()
             if num_gpus == 0:
-                print("Warning: GPU requested but no GPU available. Using CPU instead.")
+                print("⚠️  WARNING: GPU requested but no GPU available. Using CPU instead.")
                 self.use_gpu = False
             else:
-                print(f"GPU indexing enabled (GPUs available: {num_gpus}, using GPU {gpu_id})")
-                # Create persistent GPU resources
+                print(f"✅ GPU indexing enabled (GPUs available: {num_gpus}, using GPU {gpu_id})")
+                # Create persistent GPU resources with more memory
                 self.gpu_resources = faiss.StandardGpuResources()
-                # Set GPU memory (optional, defaults to all available memory)
-                # self.gpu_resources.setTempMemory(256 * 1024 * 1024)  # 256MB temp memory
+                # Increase temp memory for large datasets (H100 has plenty)
+                self.gpu_resources.setTempMemory(2 * 1024 * 1024 * 1024)  # 2GB temp memory
+                print(f"✅ GPU resources allocated (2GB temp memory)")
 
         print(f"Initializing FAISS index (type={index_type}, dim={embedding_dim}, gpu={self.use_gpu})")
         self._create_index()
@@ -94,20 +96,26 @@ class FAISSIndexer:
         else:
             raise ValueError(f"Unsupported index type: {self.index_type}")
 
+        # Store CPU index for IVF training
+        self.cpu_index = cpu_index
+
         # Move to GPU if requested
         if self.use_gpu and self.gpu_resources is not None:
-            print(f"Moving index to GPU {self.gpu_id}...")
+            print(f"🚀 Moving index to GPU {self.gpu_id}...")
             try:
                 # Use the persistent GPU resources
                 self.index = faiss.index_cpu_to_gpu(self.gpu_resources, self.gpu_id, cpu_index)
-                print(f"Index successfully moved to GPU {self.gpu_id}")
+                print(f"✅ Index successfully moved to GPU {self.gpu_id}")
+                print(f"✅ Index type on GPU: {type(self.index).__name__}")
             except Exception as e:
-                print(f"Warning: Failed to move index to GPU: {e}")
-                print("Falling back to CPU index")
+                print(f"❌ Failed to move index to GPU: {e}")
+                print("⚠️  Falling back to CPU index")
                 self.index = cpu_index
                 self.use_gpu = False
         else:
             self.index = cpu_index
+            if not self.use_gpu:
+                print("ℹ️  Using CPU index")
 
     def add_documents(self, embeddings: np.ndarray, doc_ids: List[str]):
         """
@@ -119,7 +127,7 @@ class FAISSIndexer:
         """
         assert len(embeddings) == len(doc_ids), "Mismatch between embeddings and doc_ids"
 
-        print(f"Adding {len(embeddings)} documents to index")
+        print(f"Adding {len(embeddings):,} documents to index")
 
         # Normalize if required
         if self.normalize:
@@ -129,15 +137,31 @@ class FAISSIndexer:
         embeddings = embeddings.astype(np.float32)
 
         # Train index if needed (for IVF)
-        if self.index_type == "IVF" and not self.index.is_trained:
-            print("Training IVF index...")
-            self.index.train(embeddings)
+        if self.index_type in ["IVF", "IVFPQ"]:
+            if not self.index.is_trained:
+                print(f"🎓 Training {self.index_type} index on {'GPU' if self.use_gpu else 'CPU'}...")
+
+                # For GPU index, train on CPU first then move to GPU
+                if self.use_gpu:
+                    # Train on CPU index
+                    self.cpu_index.train(embeddings)
+                    print(f"✅ Training completed on CPU")
+
+                    # Rebuild GPU index with trained CPU index
+                    print(f"🚀 Moving trained index to GPU {self.gpu_id}...")
+                    self.index = faiss.index_cpu_to_gpu(self.gpu_resources, self.gpu_id, self.cpu_index)
+                    print(f"✅ Trained index moved to GPU")
+                else:
+                    # Train on CPU
+                    self.index.train(embeddings)
+                    print(f"✅ Training completed")
 
         # Add to index
+        print(f"📥 Adding embeddings to {'GPU' if self.use_gpu else 'CPU'} index...")
         self.index.add(embeddings)
         self.doc_ids.extend(doc_ids)
 
-        print(f"Index now contains {self.index.ntotal} documents")
+        print(f"✅ Index now contains {self.index.ntotal:,} documents on {'GPU' if self.use_gpu else 'CPU'}")
 
     def search(
         self,
@@ -163,7 +187,7 @@ class FAISSIndexer:
         # Convert to float32
         query_embeddings = query_embeddings.astype(np.float32)
 
-        # Search
+        # Search (automatically uses GPU if index is on GPU)
         scores, indices = self.index.search(query_embeddings, k)
 
         # Convert to results
@@ -231,16 +255,18 @@ class FAISSIndexer:
         # Load FAISS index (always loads to CPU first)
         index_path = os.path.join(save_dir, "index.faiss")
         cpu_index = faiss.read_index(index_path)
+        self.cpu_index = cpu_index
 
         # Move to GPU if requested
         if self.use_gpu and self.gpu_resources is not None:
-            print(f"Moving loaded index to GPU {self.gpu_id}...")
+            print(f"🚀 Moving loaded index to GPU {self.gpu_id}...")
             try:
                 self.index = faiss.index_cpu_to_gpu(self.gpu_resources, self.gpu_id, cpu_index)
-                print(f"Index successfully moved to GPU {self.gpu_id}")
+                print(f"✅ Index successfully moved to GPU {self.gpu_id}")
+                print(f"✅ Index type on GPU: {type(self.index).__name__}")
             except Exception as e:
-                print(f"Warning: Failed to move index to GPU: {e}")
-                print("Using CPU index instead")
+                print(f"❌ Failed to move index to GPU: {e}")
+                print("⚠️  Using CPU index instead")
                 self.index = cpu_index
                 self.use_gpu = False
         else:
@@ -251,7 +277,7 @@ class FAISSIndexer:
         with open(doc_ids_path, "rb") as f:
             self.doc_ids = pickle.load(f)
 
-        print(f"Index loaded from {save_dir} with {self.index.ntotal} documents")
+        print(f"✅ Index loaded from {save_dir} with {self.index.ntotal:,} documents on {'GPU' if self.use_gpu else 'CPU'}")
 
     def get_num_documents(self) -> int:
         """Get number of documents in index."""
