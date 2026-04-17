@@ -40,6 +40,10 @@ class Config:
     passage_batch_size: int = 256  # Increased for GPU
     query_batch_size: int = 64  # Increased for GPU
 
+    # FAISS settings
+    use_ivf: bool = True  # Use IVF for faster CPU search
+    ivf_nlist: int = 100  # Number of IVF clusters
+
     # Reproducibility
     seed: int = 42
 
@@ -65,6 +69,8 @@ class Config:
             k_values=args.k_values,
             passage_batch_size=args.passage_batch_size,
             query_batch_size=args.query_batch_size,
+            use_ivf=args.use_ivf,
+            ivf_nlist=args.ivf_nlist,
             seed=args.seed,
             use_cache=args.use_cache,
             cache_dir=args.cache_dir,
@@ -145,6 +151,19 @@ def parse_args() -> argparse.Namespace:
         help="Batch size for encoding queries (default optimized for GPU)"
     )
 
+    # FAISS settings
+    parser.add_argument(
+        "--no_ivf",
+        action="store_true",
+        help="Don't use IVF index (use flat index instead, slower but exact)"
+    )
+    parser.add_argument(
+        "--ivf_nlist",
+        type=int,
+        default=100,
+        help="Number of IVF clusters (default: 100)"
+    )
+
     # Reproducibility
     parser.add_argument(
         "--seed",
@@ -187,6 +206,7 @@ def parse_args() -> argparse.Namespace:
 
     args = parser.parse_args()
     args.use_cache = not args.no_cache
+    args.use_ivf = not args.no_ivf
     args.save_results = not args.no_save
 
     return args

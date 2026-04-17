@@ -1,6 +1,6 @@
 """
 FAISS-based retrieval engine for dense retrieval.
-Uses IndexFlatIP for exact cosine similarity search with GPU support and caching.
+Uses optimized FAISS index with GPU support and caching.
 """
 
 from typing import List, Tuple, Optional
@@ -15,24 +15,43 @@ from data import Passage
 from models import BaseEncoder
 
 
-class FAISSRetriever:
-    """FAISS-based dense retriever with GPU support and caching."""
+# Set OMP threads for CPU parallelization
+faiss.omp_set_num_threads(16)  # Use all available CPU threads
 
-    def __init__(self, encoder: BaseEncoder, use_gpu: bool = True):
+
+class FAISSRetriever:
+    """FAISS-based dense retriever with optimized CPU index and caching."""
+
+    def __init__(
+        self,
+        encoder: BaseEncoder,
+        use_gpu: bool = False,
+        use_ivf: bool = True,
+        nlist: int = 100
+    ):
         """
         Args:
             encoder: Encoder model for embedding
-            use_gpu: Use GPU for FAISS index (default: True)
+            use_gpu: Use GPU for FAISS index (default: False for stability)
+            use_ivf: Use IVFFlat for faster search (default: True)
+            nlist: Number of clusters for IVF (default: 100)
         """
         self.encoder = encoder
         self.use_gpu = use_gpu and torch.cuda.is_available()
+        self.use_ivf = use_ivf
+        self.nlist = nlist
         self.index: Optional[faiss.Index] = None
         self.passages: List[Passage] = []
         self.passage_embeddings: Optional[np.ndarray] = None
 
         if self.use_gpu:
-            self.gpu_resource = faiss.StandardGpuResources()
-            print(f"FAISS GPU initialized")
+            try:
+                self.gpu_resource = faiss.StandardGpuResources()
+                print(f"FAISS GPU enabled (experimental)")
+            except Exception as e:
+                print(f"⚠ FAISS GPU init failed: {e}")
+                print(f"Using CPU for FAISS index (GPU still used for encoding)")
+                self.use_gpu = False
 
     def build_index(
         self,
@@ -79,16 +98,45 @@ class FAISSRetriever:
 
         # Build FAISS index
         embedding_dim = embeddings.shape[1]
-        cpu_index = faiss.IndexFlatIP(embedding_dim)
-        cpu_index.add(embeddings.astype(np.float32))
+        num_vectors = len(embeddings)
+
+        # Choose index type based on use_ivf flag
+        if self.use_ivf and num_vectors > 1000:
+            # IVF index for faster search (approximate)
+            nlist = min(self.nlist, num_vectors // 10)  # Adaptive nlist
+            quantizer = faiss.IndexFlatIP(embedding_dim)
+            cpu_index = faiss.IndexIVFFlat(quantizer, embedding_dim, nlist, faiss.METRIC_INNER_PRODUCT)
+
+            # Train the index
+            print(f"Training IVF index with {nlist} clusters...")
+            train_size = min(num_vectors, max(nlist * 40, 10000))
+            train_indices = np.random.choice(num_vectors, train_size, replace=False)
+            cpu_index.train(embeddings[train_indices].astype(np.float32))
+
+            # Add all vectors
+            cpu_index.add(embeddings.astype(np.float32))
+
+            # Set search parameters for better recall
+            cpu_index.nprobe = min(nlist // 4, 20)  # Search 20 clusters
+            print(f"✓ IVF index built ({num_vectors} vectors, nlist={nlist}, nprobe={cpu_index.nprobe})")
+        else:
+            # Flat index for exact search
+            cpu_index = faiss.IndexFlatIP(embedding_dim)
+            cpu_index.add(embeddings.astype(np.float32))
+            print(f"✓ Flat index built ({num_vectors} vectors)")
 
         # Move to GPU if enabled
         if self.use_gpu:
-            self.index = faiss.index_cpu_to_gpu(self.gpu_resource, 0, cpu_index)
-            print(f"✓ Index built with GPU ({self.index.ntotal} vectors)")
+            try:
+                self.index = faiss.index_cpu_to_gpu(self.gpu_resource, 0, cpu_index)
+                print(f"✓ Moved to GPU")
+            except Exception as e:
+                print(f"⚠ GPU transfer failed: {e}")
+                print(f"Using CPU index...")
+                self.index = cpu_index
+                self.use_gpu = False
         else:
             self.index = cpu_index
-            print(f"✓ Index built with CPU ({self.index.ntotal} vectors)")
 
         # Save to cache
         if cache_dir:
@@ -114,12 +162,12 @@ class FAISSRetriever:
         if self.index is None:
             raise ValueError("Index not built. Call build_index() first.")
 
-        # Format queries with instruction
+        # Format queries
         formatted_queries = [
             self.encoder.format_query(q) for q in queries
         ]
 
-        # Encode queries (normalized)
+        # Encode queries (GPU used here if available)
         query_embeddings = self.encoder.encode(
             formatted_queries,
             batch_size=batch_size,
@@ -127,10 +175,23 @@ class FAISSRetriever:
             show_progress=True
         )
 
-        # Search in FAISS index
-        scores, indices = self.index.search(
-            query_embeddings.astype(np.float32), k
-        )
+        # Search in FAISS index (CPU or GPU)
+        try:
+            scores, indices = self.index.search(
+                query_embeddings.astype(np.float32), k
+            )
+        except Exception as e:
+            print(f"⚠ FAISS search failed: {e}")
+            # If GPU index fails, try converting to CPU
+            if self.use_gpu:
+                print(f"Converting to CPU index...")
+                self.index = faiss.index_gpu_to_cpu(self.index)
+                self.use_gpu = False
+                scores, indices = self.index.search(
+                    query_embeddings.astype(np.float32), k
+                )
+            else:
+                raise
 
         # Convert to list of (doc_id, score) tuples
         results = []
@@ -138,7 +199,7 @@ class FAISSRetriever:
             query_results = [
                 (int(indices[i, j]), float(scores[i, j]))
                 for j in range(k)
-                if indices[i, j] != -1  # Filter out padding
+                if indices[i, j] != -1
             ]
             results.append(query_results)
 
@@ -184,7 +245,8 @@ class FAISSRetriever:
         cache_path = Path(cache_dir)
         cache_path.mkdir(parents=True, exist_ok=True)
         model_name = self.encoder.model_name.replace("/", "_")
-        return cache_path / f"{model_name}_index.faiss"
+        index_type = "ivf" if self.use_ivf else "flat"
+        return cache_path / f"{model_name}_{index_type}_index.faiss"
 
     def _get_passages_cache_path(self, cache_dir: str) -> Path:
         """Get passages cache file path."""

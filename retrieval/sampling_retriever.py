@@ -20,13 +20,15 @@ class SamplingRetriever(FAISSRetriever):
     3. From sampled documents, select top-k by score
     """
 
-    def __init__(self, encoder, seed: int = 42):
+    def __init__(self, encoder, seed: int = 42, use_ivf: bool = True, nlist: int = 100):
         """
         Args:
             encoder: Encoder model for embedding
             seed: Random seed for sampling reproducibility
+            use_ivf: Use IVF for faster search
+            nlist: Number of IVF clusters
         """
-        super().__init__(encoder)
+        super().__init__(encoder, use_gpu=False, use_ivf=use_ivf, nlist=nlist)
         self.seed = seed
         random.seed(seed)
         np.random.seed(seed)

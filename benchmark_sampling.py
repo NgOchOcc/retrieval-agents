@@ -273,7 +273,12 @@ def main():
 
     # Build index with sampling retriever
     print("\n[3/5] Building FAISS index...")
-    retriever = SamplingRetriever(encoder, seed=args.seed)
+    retriever = SamplingRetriever(
+        encoder,
+        seed=args.seed,
+        use_ivf=True,  # Use IVF for faster search
+        nlist=100
+    )
     retriever.build_index(
         passages=passages,
         batch_size=args.passage_batch_size,

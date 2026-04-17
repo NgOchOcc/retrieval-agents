@@ -106,7 +106,11 @@ def main():
 
     # Step 3: Build retrieval index
     print("\n[3/5] Building FAISS index...")
-    retriever = FAISSRetriever(encoder)
+    retriever = FAISSRetriever(
+        encoder,
+        use_ivf=config.use_ivf,
+        nlist=config.ivf_nlist
+    )
     retriever.build_index(
         passages=passages,
         batch_size=config.passage_batch_size,
