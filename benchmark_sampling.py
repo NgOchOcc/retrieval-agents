@@ -120,8 +120,21 @@ def parse_args():
         default="results/sampling",
         help="Output directory"
     )
+    parser.add_argument(
+        "--no_cache",
+        action="store_true",
+        help="Don't use cache for index"
+    )
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default="cache",
+        help="Directory for caching index"
+    )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.use_cache = not args.no_cache
+    return args
 
 
 def save_results(results: dict, args, output_path: Path):
@@ -264,7 +277,8 @@ def main():
     retriever.build_index(
         passages=passages,
         batch_size=args.passage_batch_size,
-        save_embeddings=False
+        save_embeddings=False,
+        cache_dir=args.cache_dir if args.use_cache else None
     )
 
     # Retrieve with both strategies

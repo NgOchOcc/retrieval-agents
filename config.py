@@ -5,6 +5,18 @@ Configuration management for retrieval benchmark.
 from dataclasses import dataclass, field
 from typing import List, Optional
 import argparse
+import random
+import numpy as np
+import torch
+
+
+def set_seed(seed: int):
+    """Set random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 @dataclass
@@ -31,6 +43,10 @@ class Config:
     # Reproducibility
     seed: int = 42
 
+    # Cache settings
+    use_cache: bool = True
+    cache_dir: str = "cache"
+
     # Output settings
     save_results: bool = True
     output_dir: str = "results"
@@ -50,6 +66,8 @@ class Config:
             passage_batch_size=args.passage_batch_size,
             query_batch_size=args.query_batch_size,
             seed=args.seed,
+            use_cache=args.use_cache,
+            cache_dir=args.cache_dir,
             save_results=args.save_results,
             output_dir=args.output_dir,
             verbose=args.verbose
@@ -135,6 +153,19 @@ def parse_args() -> argparse.Namespace:
         help="Random seed"
     )
 
+    # Cache settings
+    parser.add_argument(
+        "--no_cache",
+        action="store_true",
+        help="Don't use cache for index"
+    )
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default="cache",
+        help="Directory for caching index"
+    )
+
     # Output settings
     parser.add_argument(
         "--no_save",
@@ -155,6 +186,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
+    args.use_cache = not args.no_cache
     args.save_results = not args.no_save
 
     return args

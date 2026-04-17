@@ -11,21 +11,12 @@ import torch
 from datetime import datetime
 from pathlib import Path
 
-from config import Config, parse_args
+from config import Config, parse_args, set_seed
 from data import HotpotQALoader
 from models import get_encoder, SUPPORTED_MODELS
 from retrieval import FAISSRetriever
 from evaluation import RetrievalEvaluator
 from utils import print_gpu_info, get_optimal_batch_sizes
-
-
-def set_seed(seed: int):
-    """Set random seeds for reproducibility."""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
 
 
 def save_results(results: dict, config: Config, output_path: Path):
@@ -119,7 +110,8 @@ def main():
     retriever.build_index(
         passages=passages,
         batch_size=config.passage_batch_size,
-        save_embeddings=False  # Don't store embeddings to save memory
+        save_embeddings=False,  # Don't store embeddings to save memory
+        cache_dir=config.cache_dir if config.use_cache else None
     )
 
     # Step 4: Retrieve for all queries
