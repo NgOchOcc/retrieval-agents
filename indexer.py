@@ -169,6 +169,7 @@ class FAISSIndexer:
         k: int = 10,
         return_scores: bool = True,
         search_batch_size: int = 128,
+        use_cpu_for_search: bool = True,
     ) -> List[RetrievalResult]:
         """
         Search index for nearest neighbors.
@@ -178,6 +179,7 @@ class FAISSIndexer:
             k: Number of top results to return
             return_scores: Whether to return similarity scores
             search_batch_size: Batch size for search (to avoid GPU memory issues)
+            use_cpu_for_search: Move index to CPU for search to avoid GPU memory issues
 
         Returns:
             List of RetrievalResult for each query
@@ -189,9 +191,19 @@ class FAISSIndexer:
         # Convert to float32
         query_embeddings = query_embeddings.astype(np.float32)
 
+        # Move index to CPU for search if requested (to avoid GPU memory issues)
+        search_index = self.index
+        moved_to_cpu = False
+
+        if self.use_gpu and use_cpu_for_search:
+            print("🔄 Moving index to CPU for search (to avoid GPU memory issues)...")
+            search_index = faiss.index_gpu_to_cpu(self.index)
+            moved_to_cpu = True
+            print("✅ Index moved to CPU for search")
+
         num_queries = len(query_embeddings)
 
-        # Batch search to avoid GPU memory issues with large query sets
+        # Batch search to avoid memory issues with large query sets
         all_scores = []
         all_indices = []
 
@@ -199,8 +211,8 @@ class FAISSIndexer:
             end_idx = min(start_idx + search_batch_size, num_queries)
             batch_queries = query_embeddings[start_idx:end_idx]
 
-            # Search (automatically uses GPU if index is on GPU)
-            batch_scores, batch_indices = self.index.search(batch_queries, k)
+            # Search
+            batch_scores, batch_indices = search_index.search(batch_queries, k)
 
             all_scores.append(batch_scores)
             all_indices.append(batch_indices)
@@ -208,6 +220,10 @@ class FAISSIndexer:
         # Concatenate results
         scores = np.vstack(all_scores)
         indices = np.vstack(all_indices)
+
+        # Note: We don't move index back to GPU since it's still on GPU (we only created a CPU copy)
+        if moved_to_cpu:
+            print("✅ Search completed on CPU")
 
         # Convert to results
         results = []

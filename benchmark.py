@@ -221,9 +221,16 @@ class RetrievalBenchmark:
         else:
             retrieval_k = max_k
 
-        # Use smaller search batch size to avoid GPU memory issues
-        search_batch_size = 64 if self.config.device == "cuda" else 256
-        results = self.indexer.search(query_embeddings, k=retrieval_k, search_batch_size=search_batch_size)
+        # Use CPU for search to avoid GPU memory issues with large corpus
+        # (GPU is still used for encoding, which is the main bottleneck)
+        search_batch_size = 256
+        use_cpu_for_search = True  # Always use CPU for search to avoid memory issues
+        results = self.indexer.search(
+            query_embeddings,
+            k=retrieval_k,
+            search_batch_size=search_batch_size,
+            use_cpu_for_search=use_cpu_for_search
+        )
 
         # Apply sampling strategy
         if self.config.sampling_strategy != "top_k":
