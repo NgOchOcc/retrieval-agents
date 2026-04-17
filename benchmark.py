@@ -221,7 +221,9 @@ class RetrievalBenchmark:
         else:
             retrieval_k = max_k
 
-        results = self.indexer.search(query_embeddings, k=retrieval_k)
+        # Use smaller search batch size to avoid GPU memory issues
+        search_batch_size = 64 if self.config.device == "cuda" else 256
+        results = self.indexer.search(query_embeddings, k=retrieval_k, search_batch_size=search_batch_size)
 
         # Apply sampling strategy
         if self.config.sampling_strategy != "top_k":

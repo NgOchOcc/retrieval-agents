@@ -168,6 +168,7 @@ class FAISSIndexer:
         query_embeddings: np.ndarray,
         k: int = 10,
         return_scores: bool = True,
+        search_batch_size: int = 128,
     ) -> List[RetrievalResult]:
         """
         Search index for nearest neighbors.
@@ -176,6 +177,7 @@ class FAISSIndexer:
             query_embeddings: Query embeddings [num_queries, embedding_dim]
             k: Number of top results to return
             return_scores: Whether to return similarity scores
+            search_batch_size: Batch size for search (to avoid GPU memory issues)
 
         Returns:
             List of RetrievalResult for each query
@@ -187,8 +189,25 @@ class FAISSIndexer:
         # Convert to float32
         query_embeddings = query_embeddings.astype(np.float32)
 
-        # Search (automatically uses GPU if index is on GPU)
-        scores, indices = self.index.search(query_embeddings, k)
+        num_queries = len(query_embeddings)
+
+        # Batch search to avoid GPU memory issues with large query sets
+        all_scores = []
+        all_indices = []
+
+        for start_idx in range(0, num_queries, search_batch_size):
+            end_idx = min(start_idx + search_batch_size, num_queries)
+            batch_queries = query_embeddings[start_idx:end_idx]
+
+            # Search (automatically uses GPU if index is on GPU)
+            batch_scores, batch_indices = self.index.search(batch_queries, k)
+
+            all_scores.append(batch_scores)
+            all_indices.append(batch_indices)
+
+        # Concatenate results
+        scores = np.vstack(all_scores)
+        indices = np.vstack(all_indices)
 
         # Convert to results
         results = []
@@ -308,7 +327,7 @@ class SimpleRetriever:
         self.embeddings = embeddings.astype(np.float32)
         self.doc_ids = doc_ids
 
-    def search(self, query_embeddings: np.ndarray, k: int = 10) -> List[RetrievalResult]:
+    def search(self, query_embeddings: np.ndarray, k: int = 10, **kwargs) -> List[RetrievalResult]:
         """Search for nearest neighbors using cosine similarity."""
         if self.normalize:
             query_embeddings = query_embeddings / np.linalg.norm(query_embeddings, axis=1, keepdims=True)

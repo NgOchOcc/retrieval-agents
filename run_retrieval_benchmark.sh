@@ -59,17 +59,6 @@ python benchmark.py \
     $MAX_SAMPLES \
     2>&1 | tee "logs/${MODEL}_normal_retrieval_${TIMESTAMP}.log"
 
-# Check if successful
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "✓ Setting 1 completed successfully!"
-    echo ""
-else
-    echo ""
-    echo "✗ Setting 1 failed! Check logs for errors."
-    echo ""
-    exit 1
-fi
 
 # ================================================================
 # Setting 2: Retrieval with Sampling (random_sample)
@@ -95,35 +84,3 @@ python benchmark.py \
     --sampling_seed $SAMPLING_SEED \
     $MAX_SAMPLES \
     2>&1 | tee "logs/${MODEL}_sampling_retrieval_${TIMESTAMP}.log"
-
-# Check if successful
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "✓ Setting 2 completed successfully!"
-    echo ""
-else
-    echo ""
-    echo "✗ Setting 2 failed! Check logs for errors."
-    echo ""
-    exit 1
-fi
-
-# ================================================================
-# Summary
-# ================================================================
-echo "================================================================"
-echo "BENCHMARK COMPLETED"
-echo "================================================================"
-echo ""
-echo "Results saved to: $CACHE_DIR/results/"
-echo ""
-echo "Logs:"
-echo "  - Normal Retrieval: logs/${MODEL}_normal_retrieval_${TIMESTAMP}.log"
-echo "  - Sampling Retrieval: logs/${MODEL}_sampling_retrieval_${TIMESTAMP}.log"
-echo ""
-echo "================================================================"
-echo ""
-
-# Optional: Compare results
-echo "To view results, check files in: $CACHE_DIR/results/"
-echo ""
